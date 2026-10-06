@@ -11,9 +11,13 @@ namespace coldchain {
 DriftingPhysicalClock::DriftingPhysicalClock(double drift_ppm_mean,
                                              double drift_ppm_stddev,
                                              uint64_t seed) {
-    std::mt19937_64 rng(seed);
-    std::normal_distribution<double> dist(drift_ppm_mean, drift_ppm_stddev);
-    drift_rate_ppm_ = dist(rng);
+    if (drift_ppm_stddev <= 0.0) {
+        drift_rate_ppm_ = drift_ppm_mean;
+    } else {
+        std::mt19937_64 rng(seed);
+        std::normal_distribution<double> dist(drift_ppm_mean, drift_ppm_stddev);
+        drift_rate_ppm_ = dist(rng);
+    }
 }
 
 uint64_t DriftingPhysicalClock::now_ns(uint64_t sim_time_ns) const {
