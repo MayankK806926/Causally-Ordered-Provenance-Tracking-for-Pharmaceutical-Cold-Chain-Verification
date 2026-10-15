@@ -49,6 +49,9 @@ struct SimConfig {
 
     // --- block sealing ---
     size_t   events_per_block      = 32;        ///< seal a block every N events
+
+    // --- gossip / pruning ---
+    size_t   gossip_rounds         = 3;         ///< gossip rounds to propagate matrix clocks before pruning
 };
 
 } // namespace coldchain

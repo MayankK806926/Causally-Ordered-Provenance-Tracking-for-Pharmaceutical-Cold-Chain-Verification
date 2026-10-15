@@ -1,6 +1,6 @@
 /// @file main_sim.cpp
-/// @brief CLI simulation runner — Week 3: uses NetworkSimulator with discrete-event
-///        simulation, blackout injection, matrix clocks, and dual pipeline comparison.
+/// @brief CLI simulation runner — Week 5: full pipeline with pruning, metrics,
+///        and dual-pipeline comparison (vector clock vs naive baseline).
 
 #include <iostream>
 #include <iomanip>
@@ -14,8 +14,10 @@
 #include "coldchain/hashing.hpp"
 #include "coldchain/ledger_block.hpp"
 #include "coldchain/matrix_clock.hpp"
+#include "coldchain/metrics.hpp"
 #include "coldchain/network_simulator.hpp"
 #include "coldchain/physical_clock.hpp"
+#include "coldchain/pruning_engine.hpp"
 #include "coldchain/vector_clock.hpp"
 
 using namespace coldchain;
@@ -23,7 +25,7 @@ using namespace coldchain;
 void print_banner() {
     std::cout << "========================================================================\n"
               << " Resilient Provenance Tracking for IoT Cold Chains via Logical Clocks\n"
-              << " CS6666 Distributed Ledger Technologies — Simulation Harness (Week 3)\n"
+              << " CS6666 Distributed Ledger Technologies — Simulation Harness (Week 5)\n"
               << "========================================================================\n\n";
 }
 
@@ -41,6 +43,8 @@ int main(int argc, char* argv[]) {
             cfg.blackout_mean_hours = std::stod(argv[++i]);
         } else if (arg == "--sampling-interval-s" && i + 1 < argc) {
             cfg.sampling_interval_s = std::stod(argv[++i]);
+        } else if (arg == "--gossip-rounds" && i + 1 < argc) {
+            cfg.gossip_rounds = static_cast<size_t>(std::stoul(argv[++i]));
         } else if (arg == "--seed" && i + 1 < argc) {
             cfg.seed = std::stoull(argv[++i]);
         } else if (arg == "--verbose" || arg == "-v") {
@@ -52,6 +56,7 @@ int main(int argc, char* argv[]) {
                       << "  --duration-hours H         Simulation duration in hours (default: 72)\n"
                       << "  --blackout-mean-hours H    Mean blackout duration (default: 4)\n"
                       << "  --sampling-interval-s S    Telemetry interval in seconds (default: 60)\n"
+                      << "  --gossip-rounds N          Matrix clock gossip rounds (default: 3)\n"
                       << "  --seed S                   Random seed (default: 42)\n"
                       << "  --verbose, -v              Print detailed logs\n"
                       << "  --help, -h                 Show this message\n";
@@ -64,6 +69,7 @@ int main(int argc, char* argv[]) {
               << "  Shipments:          " << cfg.num_shipments << "\n"
               << "  Duration:           " << cfg.duration_hours << " hours\n"
               << "  Sampling interval:  " << cfg.sampling_interval_s << " seconds\n"
+              << "  Gossip rounds:      " << cfg.gossip_rounds << "\n"
               << "  Blackout mean:      " << cfg.blackout_mean_hours << " hours\n"
               << "  Blackout rate:      " << cfg.blackout_rate_per_hour << " /hour/node\n"
               << "  Clock drift:        ±" << cfg.drift_ppm_mean << " PPM\n"
@@ -112,6 +118,54 @@ int main(int argc, char* argv[]) {
         }
     }
     std::cout << "  Chain integrity:           " << (vclock_chains_valid ? "VALID" : "CORRUPT") << "\n";
+
+    // ── Pruning (Week 4) ──────────────────────────────────────────
+    std::cout << "\n--- Matrix-Clock Pruning (Week 4) ---\n";
+
+    if (cfg.gossip_rounds > 0) {
+        std::cout << "  Propagating matrix clocks via " << cfg.gossip_rounds
+                  << " gossip round(s)...\n";
+        sim.gossip_rounds(cfg.gossip_rounds);
+    } else {
+        std::cout << "  (0 gossip rounds configured — matrix clocks will not advance)\n";
+    }
+
+    size_t store_before = 0;
+    for (size_t i = 0; i < sim.num_nodes(); ++i)
+        store_before += sim.vclock_node(i).active_state_store().size();
+
+    size_t total_pruned = 0;
+    for (size_t i = 0; i < sim.num_nodes(); ++i) {
+        size_t pruned = PruningEngine::prune_stable_records(sim.vclock_node(i));
+        total_pruned += pruned;
+        if (verbose) {
+            VectorClock horizon = PruningEngine::pruning_horizon(sim.vclock_node(i));
+            std::cout << "  Node " << i << ": pruned " << pruned
+                      << " records, horizon = " << horizon.to_string() << "\n";
+        }
+    }
+
+    size_t store_after = 0;
+    for (size_t i = 0; i < sim.num_nodes(); ++i)
+        store_after += sim.vclock_node(i).active_state_store().size();
+
+    double s_prune = compute_storage_reduction(store_after, store_before);
+    std::cout << "  Store before pruning: " << store_before << " records\n"
+              << "  Store after pruning:  " << store_after << " records\n"
+              << "  Records pruned:       " << total_pruned << "\n"
+              << "  S_prune:              " << std::fixed << std::setprecision(2)
+              << (s_prune * 100.0) << "%\n";
+
+    // Verify chain integrity after pruning (pruning must NOT corrupt chain)
+    bool post_prune_valid = true;
+    for (size_t i = 0; i < sim.num_nodes(); ++i) {
+        if (!verify_chain(sim.vclock_node(i).chain())) {
+            post_prune_valid = false;
+            break;
+        }
+    }
+    std::cout << "  Chain integrity post-prune: "
+              << (post_prune_valid ? "VALID" : "CORRUPT") << "\n";
 
     // Matrix clock diagnostics
     if (verbose) {
@@ -162,6 +216,24 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "  Chain integrity:           " << (naive_chains_valid ? "VALID" : "CORRUPT") << "\n\n";
 
+    // ── Metrics (Week 5) ─────────────────────────────────────────
+    std::cout << "--- Computed Metrics (Week 5) ---\n";
+
+    size_t vc_inv_count = 0, naive_inv_count = 0;
+    double vc_rerr    = compute_causal_misordering_rate(vclock_sorted, vc_inv_count);
+    double naive_rerr = compute_causal_misordering_rate(naive_sorted, naive_inv_count);
+
+    auto excursions = extract_excursions(sim.ground_truth_events(), cfg);
+    double f_liab = compute_false_liability_rate(excursions, naive_sorted, cfg);
+
+    std::cout << "  R_err (vector clock): " << std::setprecision(6) << vc_rerr
+              << " (" << vc_inv_count << " inversions)\n"
+              << "  R_err (naive):        " << naive_rerr
+              << " (" << naive_inv_count << " inversions)\n"
+              << "  F_liab (naive):       " << f_liab
+              << " (" << excursions.size() << " excursions total)\n"
+              << "  S_prune:              " << std::setprecision(4) << s_prune << "\n\n";
+
     // ── Summary Comparison ──────────────────────────────────────
     std::cout << "========================================================================\n"
               << " COMPARISON RESULTS\n"
@@ -170,6 +242,8 @@ int main(int argc, char* argv[]) {
               << "------------------------------+-----------------------+-----------------\n"
               << " Causal Inversions (R_err)    | " << std::setw(21) << vclock_inversions << " | "
               << std::setw(15) << naive_inversions << "\n"
+              << " R_err Rate                   | " << std::setw(21) << std::setprecision(6) << vc_rerr << " | "
+              << std::setw(15) << naive_rerr << "\n"
               << " Causal Invariant Preserved?  | " << std::setw(21) << (vclock_causal_ok ? "YES (Guaranteed)" : "NO") << " | "
               << std::setw(15) << (naive_causal_ok ? "YES" : "NO (Violated)") << "\n"
               << " Chain Integrity Verified?    | " << std::setw(21) << (vclock_chains_valid ? "YES" : "NO") << " | "
@@ -178,6 +252,13 @@ int main(int argc, char* argv[]) {
               << std::setw(15) << naive_all_events.size() << "\n"
               << " Blocks Sealed                | " << std::setw(21) << vclock_total_blocks << " | "
               << std::setw(15) << naive_total_blocks << "\n"
+              << " F_liab                       | " << std::setw(21) << "N/A (zero by def)" << " | "
+              << std::setw(15) << std::setprecision(4) << f_liab << "\n"
+              << " S_prune                      | " << std::setw(21) << std::setprecision(2) << (s_prune * 100) << "%" << " | "
+              << std::setw(15) << "N/A" << "\n"
+              << " Store (before → after prune) | " << std::setw(11) << store_before
+              << " → " << std::setw(5) << store_after << " | "
+              << std::setw(15) << "N/A" << "\n"
               << "========================================================================\n";
 
     if (vclock_inversions == 0 && vclock_causal_ok) {
@@ -185,6 +266,10 @@ int main(int argc, char* argv[]) {
         if (naive_inversions > 0) {
             std::cout << "          Naive baseline produced " << naive_inversions
                       << " causal violation(s) — project thesis validated.\n";
+        }
+        if (s_prune > 0) {
+            std::cout << "          Matrix-clock pruning achieved " << std::setprecision(1)
+                      << (s_prune * 100.0) << "% storage reduction.\n";
         }
     }
 

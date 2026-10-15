@@ -25,13 +25,11 @@ bool LedgerNode::ingest_batch(std::vector<LedgerEvent> sorted_batch) {
         }
     }
 
-    // Update own row in matrix clock to reflect latest knowledge
+    // Update own row in matrix clock to reflect latest knowledge (monotonically)
     if (!sorted_batch.empty()) {
-        // Merge all incoming VCs into a summary VC for this batch
-        VectorClock summary(n_nodes_);
+        VectorClock summary = mc_.row(node_id_);
         for (const auto& ev : sorted_batch)
             summary.merge(event_vc(ev));
-        // Update our own VC knowledge to at least the batch summary
         mc_.set_own_row(summary, node_id_);
     }
 

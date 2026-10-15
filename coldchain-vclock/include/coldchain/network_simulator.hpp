@@ -93,6 +93,10 @@ public:
     /// Run the full simulation (cfg.duration_hours).
     void run_full();
 
+    /// Run N rounds of all-to-all gossip between vclock ledger nodes to propagate
+    /// matrix clocks and advance pruning horizons.
+    void gossip_rounds(size_t rounds);
+
     // ── Pipeline access ───────────────────────────────────────
 
     LedgerNode& vclock_node(size_t idx);

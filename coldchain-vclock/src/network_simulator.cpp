@@ -384,6 +384,29 @@ void NetworkSimulator::run_full() {
     }
 }
 
+void NetworkSimulator::gossip_rounds(size_t rounds) {
+    size_t n = vclock_nodes_.size();
+    for (size_t r = 0; r < rounds; ++r) {
+        for (size_t i = 0; i < n; ++i) {
+            for (size_t j = 0; j < n; ++j) {
+                if (i == j) continue;
+                // Node j receives node i's matrix clock
+                vclock_nodes_[j].matrix_clock().merge_matrix(
+                    vclock_nodes_[i].node_id(), vclock_nodes_[i].matrix_clock());
+
+                // Node j updates its own row with knowledge received from node i
+                for (size_t k = 0; k < n; ++k) {
+                    uint32_t cur = vclock_nodes_[j].matrix_clock().at(j, k);
+                    uint32_t learned = vclock_nodes_[i].matrix_clock().at(i, k);
+                    if (learned > cur) {
+                        vclock_nodes_[j].matrix_clock().set(j, k, learned);
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ══════════════════════════════════════════════════════════════
 //  Accessors
 // ══════════════════════════════════════════════════════════════
