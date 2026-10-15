@@ -39,6 +39,9 @@ public:
     uint32_t  operator[](size_t idx) const;
     size_t    size() const;
 
+    /// Sum of all slot values (monotonic progress metric).
+    uint32_t  sum() const;
+
     /// Human-readable "[1,0,3,2]" form — also used for block hashing input.
     std::string to_string() const;
 

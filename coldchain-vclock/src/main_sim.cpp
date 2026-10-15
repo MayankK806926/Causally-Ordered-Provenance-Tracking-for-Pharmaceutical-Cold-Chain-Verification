@@ -101,8 +101,9 @@ int main(int argc, char* argv[]) {
 
     // Topo-sort all collected events
     auto vclock_sorted = CausalMergeEngine::topo_sort(vclock_all_events);
-    size_t vclock_inversions = count_causal_inversions(vclock_sorted);
-    bool vclock_causal_ok = CausalMergeEngine::is_causally_valid(vclock_sorted);
+    size_t vclock_inversions = 0;
+    double vc_rerr = compute_causal_misordering_rate(vclock_sorted, vclock_inversions);
+    bool vclock_causal_ok = (vclock_inversions == 0);
 
     std::cout << "  Events received: " << vclock_all_events.size() << "\n"
               << "  Blocks sealed:   " << vclock_total_blocks << "\n"
@@ -199,8 +200,9 @@ int main(int argc, char* argv[]) {
     }
 
     auto naive_sorted = naive_physical_order(naive_all_events);
-    size_t naive_inversions = count_causal_inversions(naive_sorted);
-    bool naive_causal_ok = CausalMergeEngine::is_causally_valid(naive_sorted);
+    size_t naive_inversions = 0;
+    double naive_rerr = compute_causal_misordering_rate(naive_sorted, naive_inversions);
+    bool naive_causal_ok = (naive_inversions == 0);
 
     std::cout << "  Events received: " << naive_all_events.size() << "\n"
               << "  Blocks sealed:   " << naive_total_blocks << "\n"
@@ -219,17 +221,13 @@ int main(int argc, char* argv[]) {
     // ── Metrics (Week 5) ─────────────────────────────────────────
     std::cout << "--- Computed Metrics (Week 5) ---\n";
 
-    size_t vc_inv_count = 0, naive_inv_count = 0;
-    double vc_rerr    = compute_causal_misordering_rate(vclock_sorted, vc_inv_count);
-    double naive_rerr = compute_causal_misordering_rate(naive_sorted, naive_inv_count);
-
     auto excursions = extract_excursions(sim.ground_truth_events(), cfg);
     double f_liab = compute_false_liability_rate(excursions, naive_sorted, cfg);
 
     std::cout << "  R_err (vector clock): " << std::setprecision(6) << vc_rerr
-              << " (" << vc_inv_count << " inversions)\n"
+              << " (" << vclock_inversions << " inversions)\n"
               << "  R_err (naive):        " << naive_rerr
-              << " (" << naive_inv_count << " inversions)\n"
+              << " (" << naive_inversions << " inversions)\n"
               << "  F_liab (naive):       " << f_liab
               << " (" << excursions.size() << " excursions total)\n"
               << "  S_prune:              " << std::setprecision(4) << s_prune << "\n\n";

@@ -132,6 +132,7 @@ int main(int argc, char* argv[]) {
                 // Write CSV row
                 ofs << std::fixed << std::setprecision(1) << samp_int << ","
                     << metrics_to_csv_row(m, run) << "\n";
+                ofs.flush();
 
                 sum_rerr      += m.causal_misordering_rate;
                 sum_fliab     += m.false_liability_rate;
@@ -156,7 +157,7 @@ int main(int argc, char* argv[]) {
                       << "  S_prune=" << avg_sprune
                       << "  naive_inv_total=" << sum_naive_inv
                       << "  vc_inv_total=" << sum_vc_inv
-                      << "\n";
+                      << std::endl;
         }
     }
 

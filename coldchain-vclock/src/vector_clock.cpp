@@ -54,6 +54,12 @@ uint32_t VectorClock::operator[](size_t idx) const {
 
 size_t VectorClock::size() const { return clock_.size(); }
 
+uint32_t VectorClock::sum() const {
+    uint32_t s = 0;
+    for (uint32_t v : clock_) s += v;
+    return s;
+}
+
 std::string VectorClock::to_string() const {
     std::ostringstream os;
     os << '[';

@@ -43,11 +43,18 @@ std::vector<LedgerEvent> naive_physical_order(std::vector<LedgerEvent> incoming)
 
 size_t count_causal_inversions(const std::vector<LedgerEvent>& events) {
     size_t inversions = 0;
-    for (size_t i = 0; i < events.size(); ++i) {
-        const auto& vc_i = event_vc(events[i]);
-        for (size_t j = i + 1; j < events.size(); ++j) {
-            const auto& vc_j = event_vc(events[j]);
-            if (vc_j.precedes(vc_i)) {
+    const size_t n = events.size();
+    std::vector<const VectorClock*> vcs(n);
+    std::vector<uint32_t> sums(n);
+    for (size_t i = 0; i < n; ++i) {
+        vcs[i] = &event_vc(events[i]);
+        sums[i] = vcs[i]->sum();
+    }
+    for (size_t i = 0; i < n; ++i) {
+        const auto& vc_i = *vcs[i];
+        uint32_t sum_i = sums[i];
+        for (size_t j = i + 1; j < n; ++j) {
+            if (sums[j] < sum_i && vcs[j]->precedes(vc_i)) {
                 ++inversions;
             }
         }
@@ -56,10 +63,18 @@ size_t count_causal_inversions(const std::vector<LedgerEvent>& events) {
 }
 
 bool has_causal_inversion(const std::vector<LedgerEvent>& events) {
-    for (size_t i = 0; i < events.size(); ++i) {
-        const auto& vc_i = event_vc(events[i]);
-        for (size_t j = i + 1; j < events.size(); ++j) {
-            if (event_vc(events[j]).precedes(vc_i)) {
+    const size_t n = events.size();
+    std::vector<const VectorClock*> vcs(n);
+    std::vector<uint32_t> sums(n);
+    for (size_t i = 0; i < n; ++i) {
+        vcs[i] = &event_vc(events[i]);
+        sums[i] = vcs[i]->sum();
+    }
+    for (size_t i = 0; i < n; ++i) {
+        const auto& vc_i = *vcs[i];
+        uint32_t sum_i = sums[i];
+        for (size_t j = i + 1; j < n; ++j) {
+            if (sums[j] < sum_i && vcs[j]->precedes(vc_i)) {
                 return true;
             }
         }

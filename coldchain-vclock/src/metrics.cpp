@@ -25,22 +25,33 @@ double compute_causal_misordering_rate(
 
     size_t inversions = 0;
     size_t comparable_pairs = 0;
+    const size_t n = ordered_events.size();
 
-    for (size_t i = 0; i < ordered_events.size(); ++i) {
-        for (size_t j = i + 1; j < ordered_events.size(); ++j) {
-            const VectorClock& vc_i = event_vc(ordered_events[i]);
-            const VectorClock& vc_j = event_vc(ordered_events[j]);
+    std::vector<const VectorClock*> vcs(n);
+    std::vector<uint32_t> sums(n);
+    for (size_t i = 0; i < n; ++i) {
+        vcs[i] = &event_vc(ordered_events[i]);
+        sums[i] = vcs[i]->sum();
+    }
 
-            // If j precedes i (but j comes AFTER i in the ordering),
-            // that's a causal inversion.
-            if (vc_j.precedes(vc_i)) {
-                ++inversions;
-                ++comparable_pairs;
-            } else if (vc_i.precedes(vc_j)) {
-                // Correctly ordered causally-comparable pair
-                ++comparable_pairs;
+    for (size_t i = 0; i < n; ++i) {
+        const auto& vc_i = *vcs[i];
+        uint32_t sum_i = sums[i];
+        for (size_t j = i + 1; j < n; ++j) {
+            uint32_t sum_j = sums[j];
+
+            if (sum_j < sum_i) {
+                // Potential causal inversion
+                if (vcs[j]->precedes(vc_i)) {
+                    ++inversions;
+                    ++comparable_pairs;
+                }
+            } else if (sum_i < sum_j) {
+                // Correct causal ordering
+                if (vc_i.precedes(*vcs[j])) {
+                    ++comparable_pairs;
+                }
             }
-            // Concurrent pairs are not counted (no correct ordering exists)
         }
     }
 

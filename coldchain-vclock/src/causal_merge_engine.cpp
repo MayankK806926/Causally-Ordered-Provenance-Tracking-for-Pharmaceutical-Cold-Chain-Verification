@@ -33,15 +33,28 @@ std::vector<LedgerEvent> CausalMergeEngine::topo_sort(std::vector<LedgerEvent> i
     const size_t n = incoming.size();
     if (n <= 1) return incoming;
 
+    // Pre-extract vector clocks to avoid std::visit in O(n^2) loop
+    std::vector<const VectorClock*> vcs(n);
+    for (size_t i = 0; i < n; ++i) {
+        vcs[i] = &event_vc(incoming[i]);
+    }
+
     // 1. Build adjacency list for strict happens-before relation: e_i -> e_j
+    std::vector<uint32_t> sums(n);
+    for (size_t i = 0; i < n; ++i) {
+        sums[i] = vcs[i]->sum();
+    }
+
     std::vector<std::vector<size_t>> adj(n);
     std::vector<size_t> in_degree(n, 0);
 
     for (size_t i = 0; i < n; ++i) {
-        const auto& vc_i = event_vc(incoming[i]);
+        const auto& vc_i = *vcs[i];
+        uint32_t sum_i = sums[i];
         for (size_t j = 0; j < n; ++j) {
             if (i == j) continue;
-            if (vc_i.precedes(event_vc(incoming[j]))) {
+            // Prune: vc_i can only precede vc_j if sum_i < sums[j]
+            if (sum_i < sums[j] && vc_i.precedes(*vcs[j])) {
                 adj[i].push_back(j);
                 ++in_degree[j];
             }
@@ -102,10 +115,18 @@ bool CausalMergeEngine::verify_signatures(const std::vector<LedgerEvent>& batch,
 }
 
 bool CausalMergeEngine::is_causally_valid(const std::vector<LedgerEvent>& batch) {
-    for (size_t i = 0; i < batch.size(); ++i) {
-        const auto& vc_i = event_vc(batch[i]);
-        for (size_t j = i + 1; j < batch.size(); ++j) {
-            if (event_vc(batch[j]).precedes(vc_i)) {
+    const size_t n = batch.size();
+    std::vector<const VectorClock*> vcs(n);
+    std::vector<uint32_t> sums(n);
+    for (size_t i = 0; i < n; ++i) {
+        vcs[i] = &event_vc(batch[i]);
+        sums[i] = vcs[i]->sum();
+    }
+    for (size_t i = 0; i < n; ++i) {
+        const auto& vc_i = *vcs[i];
+        uint32_t sum_i = sums[i];
+        for (size_t j = i + 1; j < n; ++j) {
+            if (sums[j] < sum_i && vcs[j]->precedes(vc_i)) {
                 return false;
             }
         }
